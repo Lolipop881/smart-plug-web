@@ -16,7 +16,9 @@ export default {
   if(!allowed)return bad('Origin forbidden',403);
   const cors=response=>{const h=new Headers(response.headers);if(origin){h.set('Access-Control-Allow-Origin',origin);h.set('Vary','Origin');}h.set('Access-Control-Allow-Headers','Content-Type, Authorization');h.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');return new Response(response.body,{status:response.status,headers:h});};
   if(request.method==='OPTIONS')return cors(new Response(null,{status:204}));
-  if(!env.WEB_PASSWORD||!env.DEVICE_KEY||!env.SESSION_SECRET)return cors(bad('ยังไม่ได้ตั้งค่ารหัสผ่านและกุญแจระบบ',503));
+  const publicControl=env.PUBLIC_CONTROL==='true';
+  if(url.pathname==='/api/access'&&request.method==='GET')return cors(json({publicControl}));
+  if(!env.DEVICE_KEY||(!publicControl&&(!env.WEB_PASSWORD||!env.SESSION_SECRET)))return cors(bad('ยังไม่ได้ตั้งค่ากุญแจระบบ',503));
   const stub=env.PLUG.get(env.PLUG.idFromName('primary'));
   const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
   if(url.pathname==='/api/device/socket'){
@@ -25,13 +27,14 @@ export default {
    return stub.fetch(request);
   }
   if(url.pathname==='/api/login'&&request.method==='POST'){
+   if(publicControl)return cors(json({publicControl:true}));
    const limit=await stub.fetch('https://hub/internal/login-limit',{method:'POST',body:JSON.stringify({ip:request.headers.get('CF-Connecting-IP')||'unknown'})});
    if(limit.status!==200)return cors(limit);
    let body;try{body=await request.json();}catch{return cors(bad('Invalid JSON'));}
    if(!await same(body.password,env.WEB_PASSWORD))return cors(bad('รหัสผ่านไม่ถูกต้อง',401));
    return cors(json({token:await issue(env)}));
   }
-  if(!await session(token,env))return cors(bad('กรุณาเข้าสู่ระบบใหม่',401));
+  if(!publicControl&&!await session(token,env))return cors(bad('กรุณาเข้าสู่ระบบใหม่',401));
   if(['/api/state','/api/command','/api/logout'].includes(url.pathname)){
    if(url.pathname==='/api/logout')return cors(json({ok:true}));
    return cors(await stub.fetch(request));

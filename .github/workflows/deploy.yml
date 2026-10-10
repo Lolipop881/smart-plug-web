@@ -1,6 +1,8 @@
 name: Deploy Smart Plug
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -34,7 +36,12 @@ jobs:
           node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","WEB_PASSWORD","DEVICE_KEY","SESSION_SECRET"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
 
       - name: Extract website
-        run: unzip -q SmartPlug-Cloudflare-Web.zip -d deploy
+        run: |
+          unzip -q SmartPlug-Cloudflare-Web.zip -d deploy
+          cp src/worker.js deploy/smart-plug-cloud/src/worker.js
+          cp app.js index.html extra.css deploy/smart-plug-cloud/public/
+          cp wrangler.jsonc deploy/smart-plug-cloud/wrangler.jsonc
+          cp access.test.mjs deploy/smart-plug-cloud/tests/access.test.mjs
 
       - name: Install and test
         working-directory: deploy/smart-plug-cloud

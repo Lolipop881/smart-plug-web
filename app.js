@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s),root=$('#simple-plug');
 const grid=$('.grid'),picker=$('.channel'),feedback=$('.feedback');
-let serverOrigin=localStorage.getItem('plug-origin')||'',token=sessionStorage.getItem('plug-token')||'',data=null,online=false,busy=false,pollHandle,toastHandle,pollBusy=false;
+let serverOrigin=localStorage.getItem('plug-origin')||'',token=sessionStorage.getItem('plug-token')||'',data=null,online=false,busy=false,pollHandle,toastHandle,pollBusy=false,publicControl=false;
 const blank=()=>Array.from({length:4},(_,i)=>({name:'ช่อง '+(i+1),emoji:['💡','🔌','🌀','🌿'][i],on:false,daily:false,onMinute:480,offMinute:1080,remaining:0,target:false}));
 let channels=blank();
 function page(name){root.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!=='simple-'+name+'-panel');root.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.page===name)));}
@@ -21,11 +21,18 @@ $('.countdown').onsubmit=e=>{e.preventDefault();const p=configBase();p.minutes=N
 $('.cancel').onclick=()=>command('config',{...configBase(),minutes:0},true);
 root.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>$('.channel-emoji').value=b.dataset.emoji);
 root.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page(b.dataset.page);if(b.dataset.page==='schedule'){updatePicker();load();}});picker.onchange=load;$('.all').onclick=()=>command('all-off',{});
-async function poll(){if(busy||pollBusy||!token||document.hidden)return;pollBusy=true;try{applyState(await request('/api/state'));}catch{online=false;$('.connection').textContent='ติดต่อระบบไม่ได้';render();$('.all').disabled=true;}finally{pollBusy=false;}}
+async function poll(){if(busy||pollBusy||(!publicControl&&!token)||document.hidden)return;pollBusy=true;try{applyState(await request('/api/state'));}catch{online=false;$('.connection').textContent='ติดต่อระบบไม่ได้';render();$('.all').disabled=true;}finally{pollBusy=false;}}
 function start(){clearInterval(pollHandle);$('#setup').hidden=true;$('.app').hidden=false;poll();pollHandle=setInterval(poll,3000);}
 function logout(){token='';sessionStorage.removeItem('plug-token');clearInterval(pollHandle);$('#setup').hidden=false;$('.app').hidden=true;online=false;}
 $('#logout').onclick=logout;
 $('#setup-form').onsubmit=async e=>{e.preventDefault();const button=$('#connect');button.disabled=true;$('#setup-error').textContent='';try{const typed=$('#worker-url').value.trim();const u=new URL(typed);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('ใช้ URL HTTPS ของ Worker เช่น https://smart-plug.ชื่อบัญชี.workers.dev');serverOrigin=u.origin;const d=await request('/api/login',{password:$('#password').value});token=d.token;sessionStorage.setItem('plug-token',token);localStorage.setItem('plug-origin',serverOrigin);$('#password').value='';start();}catch(e){$('#setup-error').textContent=e.message;}finally{button.disabled=false;}};
 $('#worker-url').value=serverOrigin||(/\.workers\.dev$/.test(location.hostname)?location.origin:'');
-render();updatePicker();if(token&&serverOrigin)start();else logout();
+render();updatePicker();
+async function initialize(){
+ if(/\.workers\.dev$/.test(location.hostname))serverOrigin=location.origin;
+ try{const access=await request('/api/access');publicControl=access.publicControl===true;}catch{publicControl=false;}
+ $('#logout').hidden=publicControl;
+ if(publicControl||(token&&serverOrigin))start();else logout();
+}
+initialize();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
