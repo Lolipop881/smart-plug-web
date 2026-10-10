@@ -65,13 +65,13 @@ jobs:
           );
           NODE
 
-      - name: Deploy website
-        working-directory: deploy/smart-plug-cloud
-        run: npx wrangler deploy
-
       - name: Set Worker secrets
         working-directory: deploy/smart-plug-cloud
         run: npx wrangler secret bulk "$RUNNER_TEMP/worker-secrets.json"
+
+      - name: Deploy website
+        working-directory: deploy/smart-plug-cloud
+        run: npx wrangler deploy
 
       - name: Remove temporary secrets
         if: always()
