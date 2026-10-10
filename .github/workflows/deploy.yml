@@ -65,6 +65,22 @@ jobs:
           );
           NODE
 
+      - name: Inspect active deployment
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
+          const headers={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
+          const r=await fetch(base+'/deployments',{headers});
+          const d=await r.json();
+          const deployments=d.result?.deployments || [];
+          console.log('Recent deployments:',JSON.stringify(deployments.slice(0,4).map(x=>({id:x.id,source:x.source,created_on:x.created_on,versions:x.versions,annotations:x.annotations}))));
+          for(const x of deployments.slice(0,3))for(const v of x.versions||[]){
+            const r=await fetch(base+'/versions/'+v.version_id,{headers});
+            const d=await r.json();
+            console.log('Version metadata:',JSON.stringify({id:d.result?.id,metadata:{created_on:d.result?.metadata?.created_on,source:d.result?.metadata?.source},annotations:d.result?.annotations}));
+          }
+          NODE
+
       - name: Set Worker secrets
         working-directory: deploy/smart-plug-cloud
         run: npx wrangler secret bulk "$RUNNER_TEMP/worker-secrets.json"
