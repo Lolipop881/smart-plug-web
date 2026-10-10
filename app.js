@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s),root=$('#simple-plug');
 const grid=$('.grid'),picker=$('.channel'),feedback=$('.feedback');
-let serverOrigin=localStorage.getItem('plug-origin')||'',token=sessionStorage.getItem('plug-token')||'',data=null,online=false,busy=false,pollHandle,toastHandle,pollBusy=false,publicControl=false;
+let serverOrigin=localStorage.getItem('plug-origin')||'',token=sessionStorage.getItem('plug-token')||'',data=null,online=false,busy=false,pollHandle,toastHandle,pollBusy=false,publicControl=true;
 const blank=()=>Array.from({length:4},(_,i)=>({name:'ช่อง '+(i+1),emoji:['💡','🔌','🌀','🌿'][i],on:false,daily:false,onMinute:480,offMinute:1080,remaining:0,target:false}));
 let channels=blank();
 function page(name){root.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!=='simple-'+name+'-panel');root.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.page===name)));}
@@ -8,7 +8,7 @@ function toast(message){clearTimeout(toastHandle);$('.success-text').textContent
 function timeText(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
 function minute(s){const [h,m]=s.split(':').map(Number);return h*60+m;}
 async function request(path,body){const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);try{const r=await fetch(serverOrigin+path,{cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body!==undefined?{method:'POST',body:JSON.stringify(body)}:{})});const d=await r.json();if(!r.ok){if(r.status===401&&path!=='/api/login')logout();throw Error(d.error||'ติดต่อระบบไม่ได้');}return d;}catch(e){if(e.name==='AbortError')throw Error('ติดต่อระบบไม่สำเร็จ กรุณาลองใหม่');throw e;}finally{clearTimeout(timeout);}}
-function applyState(d){data=d;online=d.online===true;const editing=!$('#simple-schedule-panel').hidden;if(d.state)channels=d.state.channels;render();$('.connection').textContent=online?(d.state.clockValid?'● บอร์ดออนไลน์':'● บอร์ดออนไลน์ · ยังไม่พร้อมตั้งเวลารายวัน'):'○ บอร์ดออฟไลน์';$('.connection').classList.toggle('offline',!online);$('.all').disabled=!online||busy;if(!editing)updatePicker();}
+function applyState(d){data=d;online=d.online===true;const editing=!$('#simple-schedule-panel').hidden;if(d.state)channels=d.state.channels;render();$('.connection').textContent=online?(d.state.clockValid?'● บอร์ดออนไลน์':'● บอร์ดออนไลน์ · ยังไม่พร้อมตั้งเวลารายวัน'):'○ รอบอร์ดเชื่อมต่อ';$('.connection').classList.toggle('offline',!online);$('.all').disabled=!online||busy;if(!editing)updatePicker();}
 function updatePicker(){const previous=picker.value;picker.replaceChildren(...channels.map((c,i)=>new Option(c.name,String(i))));picker.value=previous||'0';}
 function render(){grid.replaceChildren();channels.forEach((c,i)=>{const tile=document.createElement('article');tile.className='tile'+(online&&c.on?' active':'');tile.innerHTML='<div class="tile-top"><button class="emoji-edit" type="button"></button><button class="power" type="button"></button></div><button class="name-edit" type="button"></button><div class="state" role="status"></div><button class="schedule-link" type="button"><span class="schedule-text"></span><span aria-hidden="true">›</span></button>';tile.querySelector('.emoji-edit').textContent=c.emoji;tile.querySelector('.emoji-edit').setAttribute('aria-label','แก้อีโมจิ '+c.name);tile.querySelector('.name-edit').textContent=c.name;tile.querySelector('.name-edit').setAttribute('aria-label','แก้ชื่อ '+c.name);const power=tile.querySelector('.power');power.setAttribute('aria-label','เปิดปิด '+c.name);power.setAttribute('aria-pressed',String(online&&c.on));power.setAttribute('aria-busy',String(busy));power.disabled=busy||!online;power.onclick=()=>command('relay',{channel:i,on:c.on?0:1});tile.querySelector('.state').textContent=online?(c.on?'เปิด':'ปิด'):'—';tile.querySelector('.schedule-text').textContent=c.remaining>0?'อีก '+Math.ceil(c.remaining/60)+' นาที':c.daily?timeText(c.onMinute)+'–'+timeText(c.offMinute):'ตั้งเวลา';const edit=()=>{picker.value=String(i);load();page('schedule');};tile.querySelector('.name-edit').onclick=edit;tile.querySelector('.emoji-edit').onclick=edit;tile.querySelector('.schedule-link').onclick=edit;grid.appendChild(tile);});}
 function load(){const c=channels[Number(picker.value)];$('.channel-name').value=c.name;$('.channel-emoji').value=c.emoji;$('.enabled').checked=c.daily;$('.open-time').value=timeText(c.onMinute);$('.close-time').value=timeText(c.offMinute);$('.minutes').value=c.remaining>0?Math.ceil(c.remaining/60):30;$('.action').value=c.target?'on':'off';$('.timer-result').textContent=c.remaining>0?'เหลือประมาณ '+Math.ceil(c.remaining/60)+' นาที':'ไม่มีนับถอยหลัง';$('.cancel').hidden=!(c.remaining>0);}
@@ -28,11 +28,7 @@ $('#logout').onclick=logout;
 $('#setup-form').onsubmit=async e=>{e.preventDefault();const button=$('#connect');button.disabled=true;$('#setup-error').textContent='';try{const typed=$('#worker-url').value.trim();const u=new URL(typed);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('ใช้ URL HTTPS ของ Worker เช่น https://smart-plug.ชื่อบัญชี.workers.dev');serverOrigin=u.origin;const d=await request('/api/login',{password:$('#password').value});token=d.token;sessionStorage.setItem('plug-token',token);localStorage.setItem('plug-origin',serverOrigin);$('#password').value='';start();}catch(e){$('#setup-error').textContent=e.message;}finally{button.disabled=false;}};
 $('#worker-url').value=serverOrigin||(/\.workers\.dev$/.test(location.hostname)?location.origin:'');
 render();updatePicker();
-async function initialize(){
- if(/\.workers\.dev$/.test(location.hostname))serverOrigin=location.origin;
- try{const access=await request('/api/access');publicControl=access.publicControl===true;}catch{publicControl=false;}
- $('#logout').hidden=publicControl;
- if(publicControl||(token&&serverOrigin))start();else logout();
-}
-initialize();
+serverOrigin=location.origin;
+$('#logout').hidden=true;
+start();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});

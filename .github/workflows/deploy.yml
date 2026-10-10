@@ -35,15 +35,13 @@ jobs:
         run: |
           node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","WEB_PASSWORD","DEVICE_KEY","SESSION_SECRET"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
 
-      - name: Extract website
+      - name: Prepare current website sources
         run: |
-          unzip -q SmartPlug-Cloudflare-Web.zip -d deploy
-          cp src/worker.js deploy/smart-plug-cloud/src/worker.js
+          mkdir -p deploy/smart-plug-cloud/src deploy/smart-plug-cloud/public deploy/smart-plug-cloud/tests
+          cp src/*.js deploy/smart-plug-cloud/src/
           cp app.js index.html extra.css deploy/smart-plug-cloud/public/
-          cp app.js deploy/smart-plug-cloud/public/app-open.js
-          cp index.html deploy/smart-plug-cloud/public/control.html
-          cp wrangler.jsonc deploy/smart-plug-cloud/wrangler.jsonc
-          cp access.test.mjs deploy/smart-plug-cloud/tests/access.test.mjs
+          cp package.json wrangler.jsonc deploy/smart-plug-cloud/
+          cp hub.test.mjs access.test.mjs deploy/smart-plug-cloud/tests/
 
       - name: Install and test
         working-directory: deploy/smart-plug-cloud
@@ -74,6 +72,37 @@ jobs:
       - name: Deploy website
         working-directory: deploy/smart-plug-cloud
         run: npx wrangler deploy
+
+      - name: Verify deployed dashboard
+        run: |
+          node --input-type=module <<'NODE'
+          const origin = 'https://smart-plug-web.lumira-labassistant.workers.dev';
+          let verified = false;
+          for (let attempt = 0; attempt < 6; attempt++) {
+            try {
+              const response = await fetch(origin + '/api/access', {signal: AbortSignal.timeout(10000)});
+              const access = await response.json();
+              const page = await fetch(origin + '/', {signal: AbortSignal.timeout(10000)});
+              const html = await page.text();
+              if (response.ok && access.publicControl === true && access.version === 'waiting-board-v1' && html.includes('รอบอร์ดเชื่อมต่อ') && html.includes('serverOrigin=location.origin')) {
+                const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
+                if (!state.ok) throw Error('State API: ' + state.status);
+                console.log('Verified login-free dashboard and board state API');
+                verified = true;
+                break;
+              }
+              console.log('Waiting for latest deployment; access status:', response.status, 'version:', access.version || 'older version');
+            } catch (error) { console.log('Verification retry:', error.message); }
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+          if (!verified) {
+            const url = 'https://api.cloudflare.com/client/v4/accounts/' + process.env.CLOUDFLARE_ACCOUNT_ID + '/workers/scripts/smart-plug-web/deployments';
+            const response = await fetch(url, {headers: {Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_TOKEN}});
+            const data = await response.json();
+            console.log('Active Worker deployments:', JSON.stringify(data.result));
+            throw Error('Public website is not serving the expected deployment');
+          }
+          NODE
 
       - name: Remove temporary secrets
         if: always()

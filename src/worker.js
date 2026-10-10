@@ -1,3 +1,4 @@
+import {dashboard} from './dashboard.js';
 const encoder = new TextEncoder();
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
 const bad = (message,status=400) => json({error:message},status);
@@ -12,20 +13,15 @@ export default {
  async fetch(request,env){
   const url=new URL(request.url),origin=request.headers.get('Origin');
   if(!url.pathname.startsWith('/api/')){
-   if(url.pathname==='/'){
-    const assetUrl=new URL(request.url);assetUrl.pathname='/control.html';
-    const response=await env.ASSETS.fetch(new Request(assetUrl,request));
-    const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');
-    return new Response(response.body,{status:response.status,headers});
-   }
+   if(url.pathname==='/'||url.pathname==='/control.html')return new Response(dashboard,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
    return env.ASSETS.fetch(request);
   }
   const allowed=!origin||origin===url.origin||origin===env.DASHBOARD_ORIGIN;
   if(!allowed)return bad('Origin forbidden',403);
   const cors=response=>{const h=new Headers(response.headers);if(origin){h.set('Access-Control-Allow-Origin',origin);h.set('Vary','Origin');}h.set('Access-Control-Allow-Headers','Content-Type, Authorization');h.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');return new Response(response.body,{status:response.status,headers:h});};
   if(request.method==='OPTIONS')return cors(new Response(null,{status:204}));
-  const publicControl=env.PUBLIC_CONTROL==='true';
-  if(url.pathname==='/api/access'&&request.method==='GET')return cors(json({publicControl}));
+  const publicControl=true;
+  if(url.pathname==='/api/access'&&request.method==='GET')return cors(json({publicControl,version:'waiting-board-v1'}));
   if(!env.DEVICE_KEY||(!publicControl&&(!env.WEB_PASSWORD||!env.SESSION_SECRET)))return cors(bad('ยังไม่ได้ตั้งค่ากุญแจระบบ',503));
   const stub=env.PLUG.get(env.PLUG.idFromName('primary'));
   const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
