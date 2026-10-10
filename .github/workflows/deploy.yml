@@ -40,6 +40,8 @@ jobs:
           unzip -q SmartPlug-Cloudflare-Web.zip -d deploy
           cp src/worker.js deploy/smart-plug-cloud/src/worker.js
           cp app.js index.html extra.css deploy/smart-plug-cloud/public/
+          cp app.js deploy/smart-plug-cloud/public/app-open.js
+          cp index.html deploy/smart-plug-cloud/public/control.html
           cp wrangler.jsonc deploy/smart-plug-cloud/wrangler.jsonc
           cp access.test.mjs deploy/smart-plug-cloud/tests/access.test.mjs
 

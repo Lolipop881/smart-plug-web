@@ -11,7 +11,15 @@ export function validCommand(action,p){if(action==='all-off')return p&&Object.ke
 export default {
  async fetch(request,env){
   const url=new URL(request.url),origin=request.headers.get('Origin');
-  if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(request);
+  if(!url.pathname.startsWith('/api/')){
+   if(url.pathname==='/'){
+    const assetUrl=new URL(request.url);assetUrl.pathname='/control.html';
+    const response=await env.ASSETS.fetch(new Request(assetUrl,request));
+    const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');
+    return new Response(response.body,{status:response.status,headers});
+   }
+   return env.ASSETS.fetch(request);
+  }
   const allowed=!origin||origin===url.origin||origin===env.DASHBOARD_ORIGIN;
   if(!allowed)return bad('Origin forbidden',403);
   const cors=response=>{const h=new Headers(response.headers);if(origin){h.set('Access-Control-Allow-Origin',origin);h.set('Vary','Origin');}h.set('Access-Control-Allow-Headers','Content-Type, Authorization');h.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');return new Response(response.body,{status:response.status,headers:h});};
