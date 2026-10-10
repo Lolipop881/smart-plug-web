@@ -94,7 +94,8 @@ jobs:
           node --input-type=module <<'NODE'
           const origin = 'https://smart-plug-web.lumira-labassistant.workers.dev';
           let verified = false;
-          for (let attempt = 0; attempt < 6; attempt++) {
+          let stableChecks = 0;
+          for (let attempt = 0; attempt < 14; attempt++) {
             try {
               const response = await fetch(origin + '/api/access', {signal: AbortSignal.timeout(10000)});
               const access = await response.json();
@@ -104,9 +105,13 @@ jobs:
                 const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
                 if (!state.ok) throw Error('State API: ' + state.status);
                 console.log('Verified login-free dashboard and board state API');
-                verified = true;
-                break;
+                stableChecks++;
+                console.log('Stable deployment checks:', stableChecks, '/ 8');
+                if (stableChecks >= 8) { verified = true; break; }
+                await new Promise(resolve => setTimeout(resolve, 20000));
+                continue;
               }
+              stableChecks = 0;
               console.log('Waiting for latest deployment; access status:', response.status, 'version:', access.version || 'older version');
             } catch (error) { console.log('Verification retry:', error.message); }
             await new Promise(resolve => setTimeout(resolve, 5000));
