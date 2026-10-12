@@ -47,31 +47,6 @@ jobs:
           npm install
           npm test
 
-      - name: Inspect active deployment
-        run: |
-          node --input-type=module <<'NODE'
-          const base='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
-          const headers={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
-          const nsResponse=await fetch('https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/durable_objects/namespaces',{headers,signal:AbortSignal.timeout(20000)});
-          const ns=await nsResponse.json();
-          console.log('Plug namespaces:',JSON.stringify((ns.result||[]).filter(x=>x.class==='PlugHub'||x.class_name==='PlugHub'||x.name?.includes('PlugHub'))));
-          const settingsResponse=await fetch(base+'/settings',{headers,signal:AbortSignal.timeout(20000)});
-          const settings=await settingsResponse.json();
-          console.log('Current DO binding:',JSON.stringify((settings.result?.bindings||[]).filter(b=>b.type==='durable_object_namespace')));
-          const codeResponse=await fetch(base,{headers,signal:AbortSignal.timeout(20000)});
-          const deployed=await codeResponse.text();
-          console.log('Uploaded receiver source:',JSON.stringify({hasSnapshot:deployed.includes('async snapshot()'),hasLastSeen:deployed.includes('lastSeenAt'),hasEvents:deployed.includes("path==='/api/events'"),hasTTL:deployed.includes('offlineAfterMs:10000')}));
-          const r=await fetch(base+'/deployments',{headers});
-          const d=await r.json();
-          const deployments=d.result?.deployments || [];
-          console.log('Recent deployments:',JSON.stringify(deployments.slice(0,4).map(x=>({id:x.id,source:x.source,created_on:x.created_on,versions:x.versions,annotations:x.annotations}))));
-          for(const x of deployments.slice(0,3))for(const v of x.versions||[]){
-            const r=await fetch(base+'/versions/'+v.version_id,{headers});
-            const d=await r.json();
-            console.log('Version metadata:',JSON.stringify({id:d.result?.id,metadata:{created_on:d.result?.metadata?.created_on,source:d.result?.metadata?.source},annotations:d.result?.annotations}));
-          }
-          NODE
-
       - name: Deploy website
         working-directory: deploy/smart-plug-cloud
         run: |
