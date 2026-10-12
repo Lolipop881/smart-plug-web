@@ -14,7 +14,7 @@ export default {
   const url=new URL(request.url),origin=request.headers.get('Origin');
   if(!url.pathname.startsWith('/api/')){
    if(url.pathname==='/'||url.pathname==='/control.html')return new Response(dashboard,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
-   return env.ASSETS.fetch(request);
+   return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
   }
   const allowed=!origin||origin===url.origin||origin===env.DASHBOARD_ORIGIN;
   if(!allowed)return bad('Origin forbidden',403);
