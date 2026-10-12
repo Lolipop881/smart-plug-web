@@ -52,6 +52,10 @@ jobs:
           node --input-type=module <<'NODE'
           const base='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
           const headers={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
+          const settingsResponse=await fetch(base+'/settings',{headers,signal:AbortSignal.timeout(20000)});
+          const settings=await settingsResponse.json();
+          console.log('Durable Object wiring:',JSON.stringify((settings.result?.bindings||[]).filter(b=>b.type==='durable_object_namespace')));
+          throw Error('Diagnostic complete: inspecting Durable Object wiring before next deployment');
           const r=await fetch(base+'/deployments',{headers});
           const d=await r.json();
           const deployments=d.result?.deployments || [];
