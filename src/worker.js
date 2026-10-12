@@ -51,7 +51,7 @@ export class PlugHub {
  constructor(ctx,env){this.ctx=ctx;this.env=env;}
  async latest(){return await this.ctx.storage.get('latest')||null;}
  async online(){const s=await this.latest();return this.ctx.getWebSockets('device').some(ws=>ws.readyState===1)&&!!s&&Date.now()-s.at<10000;}
- async snapshot(){const latest=await this.latest();return {online:await this.online(),state:latest?.state||null,confirmedAt:latest?.at||null,lastSeenAt:(await this.ctx.storage.get('lastSeenAt'))||latest?.at||null,serverNow:Date.now(),offlineAfterMs:10000};}
+ async snapshot(){const latest=await this.latest();return {receiverVersion:'realtime-presence-v2',online:await this.online(),state:latest?.state||null,confirmedAt:latest?.at||null,lastSeenAt:(await this.ctx.storage.get('lastSeenAt'))||latest?.at||null,serverNow:Date.now(),offlineAfterMs:10000};}
  async broadcast(){const message=JSON.stringify(await this.snapshot());for(const ws of this.ctx.getWebSockets('viewer')){try{ws.send(message);}catch{try{ws.close(1011,'Connection error');}catch{}}}}
 
  async fetch(request){
