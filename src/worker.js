@@ -9,6 +9,7 @@ async function issue(env){const body=b64(encoder.encode(JSON.stringify({exp:Date
 async function session(token,env){try{const [body,sig,...rest]=token.split('.');if(rest.length||!body||!sig||!await same(sig,await signature(body,env.SESSION_SECRET)))return false;const decoded=JSON.parse(atob(body.replaceAll('-','+').replaceAll('_','/')));return Number.isFinite(decoded.exp)&&decoded.exp>Date.now();}catch{return false;}}
 export function validState(state){return !!state&&typeof state.clockValid==='boolean'&&Array.isArray(state.channels)&&state.channels.length===4&&state.channels.every(c=>c&&typeof c.on==='boolean'&&typeof c.name==='string'&&encoder.encode(c.name).length<=80&&typeof c.emoji==='string'&&encoder.encode(c.emoji).length<=32&&typeof c.daily==='boolean'&&Number.isInteger(c.onMinute)&&c.onMinute>=0&&c.onMinute<1440&&Number.isInteger(c.offMinute)&&c.offMinute>=0&&c.offMinute<1440&&Number.isFinite(c.remaining)&&c.remaining>=0&&c.remaining<=604801&&typeof c.target==='boolean');}
 export function validCommand(action,p){if(action==='all-off')return p&&Object.keys(p).length===0;if(!p||!Number.isInteger(p.channel)||p.channel<0||p.channel>3)return false;if(action==='relay')return p.on===0||p.on===1;if(action!=='config')return false;return typeof p.name==='string'&&p.name.trim().length>0&&encoder.encode(p.name).length<=80&&typeof p.emoji==='string'&&encoder.encode(p.emoji).length<=32&&[0,1].includes(p.daily)&&Number.isInteger(p.onMinute)&&p.onMinute>=0&&p.onMinute<1440&&Number.isInteger(p.offMinute)&&p.offMinute>=0&&p.offMinute<1440&&(!p.daily||p.onMinute!==p.offMinute)&&Number.isInteger(p.minutes)&&p.minutes>=0&&p.minutes<=10080&&[0,1].includes(p.target);}
+export function normalizeBoardState(d,now=Date.now()){const at=d.lastSeenAt??d.confirmedAt??null;return {...d,online:d.online===true&&Number.isFinite(at)&&now-at<10000,lastSeenAt:at,serverNow:now,offlineAfterMs:10000};}
 export default {
  async fetch(request,env){
   const url=new URL(request.url),origin=request.headers.get('Origin');
@@ -42,7 +43,10 @@ export default {
   if(url.pathname==='/api/events'&&request.headers.get('Upgrade')?.toLowerCase()==='websocket')return stub.fetch(request);
   if(['/api/state','/api/command','/api/logout'].includes(url.pathname)){
    if(url.pathname==='/api/logout')return cors(json({ok:true}));
-   return cors(await stub.fetch(request));
+   if(url.pathname==='/api/command'){const check=await stub.fetch('https://hub/api/state');if(!check.ok||!normalizeBoardState(await check.json()).online)return cors(bad('บอร์ดออฟไลน์ ยังส่งคำสั่งไม่ได้',503));}
+   const response=await stub.fetch(request);
+   if(url.pathname==='/api/state'&&response.ok)return cors(json(normalizeBoardState(await response.json())));
+   return cors(response);
   }
   return cors(bad('Not found',404));
  }
