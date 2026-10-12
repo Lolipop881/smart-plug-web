@@ -21,7 +21,7 @@ export default {
   const cors=response=>{const h=new Headers(response.headers);if(origin){h.set('Access-Control-Allow-Origin',origin);h.set('Vary','Origin');}h.set('Access-Control-Allow-Headers','Content-Type, Authorization');h.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');return new Response(response.body,{status:response.status,headers:h});};
   if(request.method==='OPTIONS')return cors(new Response(null,{status:204}));
   const publicControl=true;
-  if(url.pathname==='/api/access'&&request.method==='GET')return cors(json({publicControl,version:'waiting-board-v1'}));
+  if(url.pathname==='/api/access'&&request.method==='GET')return cors(json({publicControl,version:'realtime-presence-v2'}));
   if(!env.DEVICE_KEY||(!publicControl&&(!env.WEB_PASSWORD||!env.SESSION_SECRET)))return cors(bad('ยังไม่ได้ตั้งค่ากุญแจระบบ',503));
   const stub=env.PLUG.get(env.PLUG.idFromName('primary'));
   const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
@@ -39,6 +39,7 @@ export default {
    return cors(json({token:await issue(env)}));
   }
   if(!publicControl&&!await session(token,env))return cors(bad('กรุณาเข้าสู่ระบบใหม่',401));
+  if(url.pathname==='/api/events'&&request.headers.get('Upgrade')?.toLowerCase()==='websocket')return stub.fetch(request);
   if(['/api/state','/api/command','/api/logout'].includes(url.pathname)){
    if(url.pathname==='/api/logout')return cors(json({ok:true}));
    return cors(await stub.fetch(request));
@@ -49,48 +50,55 @@ export default {
 export class PlugHub {
  constructor(ctx,env){this.ctx=ctx;this.env=env;}
  async latest(){return await this.ctx.storage.get('latest')||null;}
- async online(){const s=await this.latest();return this.ctx.getWebSockets('device').length>0&&!!s&&Date.now()-s.at<65000;}
+ async online(){const s=await this.latest();return this.ctx.getWebSockets('device').some(ws=>ws.readyState===1)&&!!s&&Date.now()-s.at<10000;}
+ async snapshot(){const latest=await this.latest();return {online:await this.online(),state:latest?.state||null,confirmedAt:latest?.at||null,lastSeenAt:(await this.ctx.storage.get('lastSeenAt'))||latest?.at||null,serverNow:Date.now(),offlineAfterMs:10000};}
+ async broadcast(){const message=JSON.stringify(await this.snapshot());for(const ws of this.ctx.getWebSockets('viewer')){try{ws.send(message);}catch{try{ws.close(1011,'Connection error');}catch{}}}}
+
  async fetch(request){
   const path=new URL(request.url).pathname;
+  if(path==='/api/events'){
+   const pair=new WebSocketPair();const [client,server]=Object.values(pair);this.ctx.acceptWebSocket(server,['viewer']);server.send(JSON.stringify(await this.snapshot()));return new Response(null,{status:101,webSocket:client});
+  }
   if(path==='/internal/login-limit'){
    const {ip}=await request.json();const key='login:'+b64(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(ip))));const now=Date.now();let r=await this.ctx.storage.get(key);if(!r||now-r.at>600000)r={at:now,n:0};r.n++;await this.ctx.storage.put(key,r);await this.ensureAlarm();return r.n>10?bad('ลองเข้าสู่ระบบใหม่ในอีก 10 นาที',429):json({ok:true});
   }
   if(path==='/api/device/socket'){
-   const previous=this.ctx.getWebSockets('device');for(const ws of previous)ws.close(1000,'Replaced by new connection');await this.ctx.storage.delete('latest');
-   const pair=new WebSocketPair();const [client,server]=Object.values(pair);this.ctx.acceptWebSocket(server,['device']);server.serializeAttachment({connection:crypto.randomUUID()});server.send(JSON.stringify({type:'hello',protocol:1,heartbeatSeconds:25}));return new Response(null,{status:101,webSocket:client});
+   const previous=this.ctx.getWebSockets('device');for(const ws of previous)ws.close(1000,'Replaced by new connection');await this.ctx.storage.delete('latest');await this.broadcast();
+   const pair=new WebSocketPair();const [client,server]=Object.values(pair);this.ctx.acceptWebSocket(server,['device']);server.serializeAttachment({connection:crypto.randomUUID()});server.send(JSON.stringify({type:'hello',protocol:1,heartbeatSeconds:3}));return new Response(null,{status:101,webSocket:client});
   }
   if(path==='/api/state'&&request.method==='GET'){
-   const latest=await this.latest();const commandId=new URL(request.url).searchParams.get('command');const command=commandId?await this.ctx.storage.get('cmd:'+commandId):null;return json({online:await this.online(),state:latest?.state||null,confirmedAt:latest?.at||null,command:command?this.publicCommand(command):null});
+   const latest=await this.latest();const commandId=new URL(request.url).searchParams.get('command');const command=commandId?await this.ctx.storage.get('cmd:'+commandId):null;return json({...await this.snapshot(),command:command?this.publicCommand(command):null});
   }
   if(path==='/api/command'&&request.method==='POST'){
    const busy=await this.ctx.storage.get('busy');if(busy&&busy.expires>Date.now())return bad('มีคำสั่งกำลังรอยืนยัน กรุณารอสักครู่',409);
    if(!await this.online())return bad('บอร์ดออฟไลน์ ยังส่งคำสั่งไม่ได้',503);
    let body;try{body=await request.json();}catch{return bad('Invalid JSON');}
    if(!validCommand(body.action,body.payload))return bad('ข้อมูลคำสั่งไม่ถูกต้อง');
-   const id=crypto.randomUUID(),expires=Date.now()+10000;const record={id,action:body.action,payload:body.payload,status:'pending',created:Date.now(),expires,connection:this.ctx.getWebSockets('device')[0].deserializeAttachment().connection};
+   const id=crypto.randomUUID(),expires=Date.now()+10000;const record={id,action:body.action,payload:body.payload,status:'pending',created:Date.now(),expires,connection:this.ctx.getWebSockets('device').find(ws=>ws.readyState===1).deserializeAttachment().connection};
    await this.ctx.storage.put({['cmd:'+id]:record,busy:{id,expires}});
-   try{this.ctx.getWebSockets('device')[0].send(JSON.stringify({type:'command',protocol:1,id,action:body.action,payload:body.payload,expiresAt:expires}));}catch{record.status='failed';await this.ctx.storage.put('cmd:'+id,record);await this.ctx.storage.delete('busy');return bad('การเชื่อมต่อบอร์ดขาด กรุณาตรวจสถานะ',503);}
+   try{this.ctx.getWebSockets('device').find(ws=>ws.readyState===1).send(JSON.stringify({type:'command',protocol:1,id,action:body.action,payload:body.payload,expiresAt:expires}));}catch{record.status='failed';await this.ctx.storage.put('cmd:'+id,record);await this.ctx.storage.delete('busy');return bad('การเชื่อมต่อบอร์ดขาด กรุณาตรวจสถานะ',503);}
    await this.ensureAlarm();return json({id},202);
   }
   return bad('Not found',404);
  }
  publicCommand(c){return {id:c.id,status:c.status==='pending'&&Date.now()>c.expires?'timeout':c.status,error:c.error||null};}
- async ensureAlarm(){if(await this.ctx.storage.getAlarm()===null)await this.ctx.storage.setAlarm(Date.now()+600000);}
+ async ensureAlarm(){const latest=await this.latest();const next=this.ctx.getWebSockets('device').some(ws=>ws.readyState===1)&&latest?Math.min(Date.now()+600000,Math.max(Date.now()+1,latest.at+10000)):Date.now()+600000;const current=await this.ctx.storage.getAlarm();if(current===null||next<current)await this.ctx.storage.setAlarm(next);}
  async webSocketMessage(ws,raw){
   if(typeof raw!=='string'||raw.length>8192){ws.close(1009,'Message too large');return;}
   let m;try{m=JSON.parse(raw);}catch{return;}
-  const active=this.ctx.getWebSockets('device')[0];if(ws!==active)return;
-  if(m.type==='state'&&validState(m.state)){await this.ctx.storage.put('latest',{state:m.state,at:Date.now()});return;}
+  const active=this.ctx.getWebSockets('device').find(ws=>ws.readyState===1);if(ws!==active)return;
+  if(m.type==='state'&&validState(m.state)){const at=Date.now();await this.ctx.storage.put({latest:{state:m.state,at},lastSeenAt:at});await this.ensureAlarm();await this.broadcast();return;}
   if(m.type!=='ack'||typeof m.id!=='string')return;
   const c=await this.ctx.storage.get('cmd:'+m.id);
   if(!c||c.status!=='pending'||Date.now()>c.expires||c.connection!==ws.deserializeAttachment().connection)return;
   if(m.ok!==true||!validState(m.state)){c.status='failed';c.error='บอร์ดยืนยันไม่สำเร็จ';}
   else if(!this.matches(c,m.state)){c.status='failed';c.error='สถานะจากบอร์ดไม่ตรงกับคำสั่ง';}
-  else{c.status='done';await this.ctx.storage.put('latest',{state:m.state,at:Date.now()});}
+  else{c.status='done';const at=Date.now();await this.ctx.storage.put({latest:{state:m.state,at},lastSeenAt:at});await this.ensureAlarm();await this.broadcast();}
   await this.ctx.storage.put('cmd:'+m.id,c);const busy=await this.ctx.storage.get('busy');if(busy?.id===m.id)await this.ctx.storage.delete('busy');
  }
  matches(c,s){if(c.action==='relay')return s.channels[c.payload.channel].on===!!c.payload.on;if(c.action==='all-off')return s.channels.every(ch=>!ch.on);const ch=s.channels[c.payload.channel],p=c.payload;return ch.name===p.name&&ch.emoji===p.emoji&&ch.daily===!!p.daily&&ch.onMinute===p.onMinute&&ch.offMinute===p.offMinute&&ch.target===!!p.target&&(p.minutes===0?ch.remaining===0:Math.abs(ch.remaining-p.minutes*60)<=10);}
- async webSocketClose(ws){const active=this.ctx.getWebSockets('device');if(!active.length)await this.ctx.storage.delete('latest');}
- async webSocketError(ws){try{ws.close(1011,'Connection error');}catch{}}
- async alarm(){const now=Date.now();for(const [key,c] of await this.ctx.storage.list({prefix:'cmd:'})){if(now-c.created>600000)await this.ctx.storage.delete(key);}for(const [key,r] of await this.ctx.storage.list({prefix:'login:'})){if(now-r.at>600000)await this.ctx.storage.delete(key);}const busy=await this.ctx.storage.get('busy');if(busy&&busy.expires<now)await this.ctx.storage.delete('busy');if((await this.ctx.storage.list({prefix:'cmd:',limit:1})).size||(await this.ctx.storage.list({prefix:'login:',limit:1})).size)await this.ctx.storage.setAlarm(now+600000);}
+ async webSocketClose(ws){await this.broadcast();}
+ async webSocketError(ws){try{ws.close(1011,'Connection error');}catch{}await this.broadcast();}
+ async alarm(){const now=Date.now();const latest=await this.latest();if(latest&&now-latest.at>=10000){for(const ws of this.ctx.getWebSockets('device')){try{ws.close(1001,'Heartbeat timeout');}catch{}}}await this.broadcast();for(const [key,c] of await this.ctx.storage.list({prefix:'cmd:'})){if(now-c.created>600000)await this.ctx.storage.delete(key);}for(const [key,r] of await this.ctx.storage.list({prefix:'login:'})){if(now-r.at>600000)await this.ctx.storage.delete(key);}const busy=await this.ctx.storage.get('busy');if(busy&&busy.expires<now)await this.ctx.storage.delete('busy');if(await this.online()||(await this.ctx.storage.list({prefix:'cmd:',limit:1})).size||(await this.ctx.storage.list({prefix:'login:',limit:1})).size)await this.ensureAlarm();}
 }
+
