@@ -93,6 +93,9 @@
 #simple-plug .app{position:relative}
 #simple-plug .stamp{display:none}
 #simple-plug .success{position:absolute;left:18px;right:18px;bottom:78px;margin:0;justify-content:center;box-shadow:0 4px 18px light-dark(#26382d1f,#00000040);pointer-events:none}
+
+#simple-plug .schedule-text{white-space:pre-line;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;line-height:1.6}
+#simple-plug .timer-result{white-space:pre-line;font-size:20px;font-variant-numeric:tabular-nums;line-height:1.6;margin-top:14px}
 </style>
 <section hidden class="app" aria-label="หน้าเว็บควบคุมสไตล์ Smart Home">
 <div class="content">
@@ -106,7 +109,7 @@
 <div class="editor">
 <label>เลือกช่อง<select class="channel"><option value="0">ช่อง 1</option><option value="1">ช่อง 2</option><option value="2">ช่อง 3</option><option value="3">ช่อง 4</option></select></label>
 <form class="identity"><label>ชื่อช่อง<input class="channel-name" type="text" maxlength="32" required></label><label>อีโมจิ<input class="channel-emoji" type="text" maxlength="16" required></label><div class="emoji-choices" aria-label="เลือกอีโมจิ"><button type="button" class="cursor-interaction" data-emoji="💡" aria-label="หลอดไฟ">💡</button><button type="button" class="cursor-interaction" data-emoji="🔌" aria-label="ปลั๊ก">🔌</button><button type="button" class="cursor-interaction" data-emoji="🌀" aria-label="พัดลม">🌀</button><button type="button" class="cursor-interaction" data-emoji="🐟" aria-label="ปลา">🐟</button><button type="button" class="cursor-interaction" data-emoji="🌿" aria-label="ต้นไม้">🌿</button><button type="button" class="cursor-interaction" data-emoji="🏠" aria-label="บ้าน">🏠</button></div><button type="submit" class="save cursor-interaction">บันทึกชื่อและอีโมจิ</button></form>
-<form class="daily"><label class="check"><input type="checkbox" class="enabled"> เปิดใช้ตารางทุกวัน</label><div class="pair"><label>เวลาเปิด<input class="open-time" type="time" value="08:00" required></label><label>เวลาปิด<input class="close-time" type="time" value="18:00" required></label></div><div class="muted" style="margin-bottom:12px">เวลาไทย · UTC+7</div><button type="submit" class="save cursor-interaction">บันทึกตารางเวลา</button></form>
+<form class="daily"><label class="check"><input type="checkbox" class="enabled"> เปิดใช้ตารางทุกวัน</label><div class="pair"><label>เวลาเปิด<input class="open-time" type="time" value="08:00" required></label><label>เวลาปิด<input class="close-time" type="time" value="18:00" required></label></div><div class="muted" style="margin-bottom:12px">เวลาไทย · UTC+7</div><div class="actions"><button type="submit" class="save cursor-interaction">บันทึกตารางเวลา</button><button type="button" class="clear-daily cursor-interaction">ล้างตารางเวลา</button></div></form>
 <hr><div class="section-title">นับถอยหลัง</div>
 <form class="countdown"><div class="pair"><label>อีกกี่นาที<input type="number" class="minutes" value="30" min="1" max="10080" step="1" required></label><label>คำสั่ง<select class="action"><option value="off">ปิด</option><option value="on">เปิด</option></select></label></div><div class="actions"><button type="submit" class="cursor-interaction">เริ่มนับถอยหลัง</button><button type="button" class="cancel cursor-interaction" hidden>ยกเลิก</button></div><div class="timer-result"></div></form>
 </div>
