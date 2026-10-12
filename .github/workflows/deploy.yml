@@ -88,7 +88,7 @@ jobs:
               const access = await response.json();
               const page = await fetch(origin + '/', {signal: AbortSignal.timeout(10000)});
               const html = await page.text();
-              if (response.ok && access.publicControl === true && access.version === 'realtime-presence-v2' && html.includes('ได้รับสัญญาณจากบอร์ดล่าสุด') && html.includes('/api/events') && html.includes('serverOrigin=location.origin')) {
+              if (response.ok && access.publicControl === true && access.version === 'realtime-presence-v2' && html.includes('ได้รับสัญญาณจากบอร์ดล่าสุด') && html.includes('/api/events') && html.includes('serverOrigin=location.origin') && html.includes('function remainingSeconds') && html.includes('clear-daily')) {
                 const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
                 if (!state.ok) throw Error('State API: ' + state.status);
                 const snapshot=await state.json();
