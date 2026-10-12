@@ -20,9 +20,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      WEB_PASSWORD: ${{ secrets.WEB_PASSWORD }}
-      DEVICE_KEY: ${{ secrets.DEVICE_KEY }}
-      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +30,14 @@ jobs:
 
       - name: Check required secrets
         run: |
-          node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","WEB_PASSWORD","DEVICE_KEY","SESSION_SECRET"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
+          node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
 
       - name: Prepare current website sources
         run: |
           mkdir -p deploy/smart-plug-cloud/src deploy/smart-plug-cloud/public deploy/smart-plug-cloud/tests
           cp src/*.js deploy/smart-plug-cloud/src/
           cp app.js index.html extra.css deploy/smart-plug-cloud/public/
+          cp -a public/. deploy/smart-plug-cloud/public/
           cp package.json wrangler.jsonc deploy/smart-plug-cloud/
           cp hub.test.mjs access.test.mjs deploy/smart-plug-cloud/tests/
 
@@ -48,22 +46,6 @@ jobs:
         run: |
           npm install
           npm test
-
-      - name: Prepare Worker secrets
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const values = {};
-          for (const key of ['WEB_PASSWORD', 'DEVICE_KEY', 'SESSION_SECRET']) {
-            values[key] = process.env[key];
-          }
-          fs.writeFileSync(
-            path.join(process.env.RUNNER_TEMP, 'worker-secrets.json'),
-            JSON.stringify(values),
-            { mode: 0o600 }
-          );
-          NODE
 
       - name: Inspect active deployment
         run: |
@@ -81,10 +63,6 @@ jobs:
           }
           NODE
 
-      - name: Set Worker secrets
-        working-directory: deploy/smart-plug-cloud
-        run: npx wrangler secret bulk "$RUNNER_TEMP/worker-secrets.json"
-
       - name: Deploy website
         working-directory: deploy/smart-plug-cloud
         run: npx wrangler deploy
@@ -101,7 +79,7 @@ jobs:
               const access = await response.json();
               const page = await fetch(origin + '/', {signal: AbortSignal.timeout(10000)});
               const html = await page.text();
-              if (response.ok && access.publicControl === true && access.version === 'waiting-board-v1' && html.includes('รอบอร์ดเชื่อมต่อ') && html.includes('serverOrigin=location.origin')) {
+              if (response.ok && access.publicControl === true && access.version === 'realtime-presence-v2' && html.includes('ได้รับสัญญาณจากบอร์ดล่าสุด') && html.includes('/api/events') && html.includes('serverOrigin=location.origin')) {
                 const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
                 if (!state.ok) throw Error('State API: ' + state.status);
                 console.log('Verified login-free dashboard and board state API');
@@ -125,6 +103,3 @@ jobs:
           }
           NODE
 
-      - name: Remove temporary secrets
-        if: always()
-        run: rm -f "$RUNNER_TEMP/worker-secrets.json"
