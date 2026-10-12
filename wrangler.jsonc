@@ -3,8 +3,24 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-10-09",
   "workers_dev": true,
-  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": true },
-  "durable_objects": { "bindings": [{ "name": "PLUG", "class_name": "PlugHub" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlugHub"] }],
-  "vars": { "PUBLIC_CONTROL": "true", "DASHBOARD_ORIGIN": "https://smart-plug-control.nachaponsuksawat.chatgpt.site" }
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PLUG",
+        "class_name": "PlugHub"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "PlugHub"
+      ]
+    }
+  ],
+  "vars": {
+    "PUBLIC_CONTROL": "true",
+    "DASHBOARD_ORIGIN": "https://smart-plug-control.nachaponsuksawat.chatgpt.site"
+  }
 }
