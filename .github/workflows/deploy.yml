@@ -61,7 +61,6 @@ jobs:
           const codeResponse=await fetch(base,{headers,signal:AbortSignal.timeout(20000)});
           const deployed=await codeResponse.text();
           console.log('Uploaded receiver source:',JSON.stringify({hasSnapshot:deployed.includes('async snapshot()'),hasLastSeen:deployed.includes('lastSeenAt'),hasEvents:deployed.includes("path==='/api/events'"),hasTTL:deployed.includes('offlineAfterMs:10000')}));
-          throw Error('Read-only receiver inspection complete');
           const r=await fetch(base+'/deployments',{headers});
           const d=await r.json();
           const deployments=d.result?.deployments || [];
