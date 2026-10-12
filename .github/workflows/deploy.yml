@@ -65,7 +65,31 @@ jobs:
 
       - name: Deploy website
         working-directory: deploy/smart-plug-cloud
-        run: npx wrangler deploy
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dashboard = fs.readFileSync('src/dashboard.js','utf8').replace('export const dashboard =','const dashboard =');
+          const worker = fs.readFileSync('src/worker.js','utf8').replace("import {dashboard} from './dashboard.js';","");
+          const code = dashboard + '\n' + worker;
+          const form = new FormData();
+          form.set('metadata',new Blob([JSON.stringify({
+            main_module:'worker.js',
+            compatibility_date:'2026-10-09',
+            keep_bindings:['secret_text','plain_text','durable_object_namespace']
+          })],{type:'application/json'}));
+          form.set('worker.js',new Blob([code],{type:'application/javascript+module'}),'worker.js');
+          const endpoint='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
+          const response=await fetch(endpoint,{
+            method:'PUT',
+            headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},
+            body:form,
+            signal:AbortSignal.timeout(90000)
+          });
+          const raw=await response.text();
+          let result;try{result=JSON.parse(raw);}catch{throw Error('Worker upload HTTP '+response.status);}
+          if(!response.ok||!result.success)throw Error('Worker upload failed: '+JSON.stringify(result.errors||[]));
+          console.log('Realtime Worker uploaded; existing secrets and Durable Object bindings preserved.');
+          NODE
 
       - name: Verify deployed dashboard
         run: |
