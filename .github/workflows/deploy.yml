@@ -52,6 +52,16 @@ jobs:
           node --input-type=module <<'NODE'
           const base='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
           const headers={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
+          const nsResponse=await fetch('https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/durable_objects/namespaces',{headers,signal:AbortSignal.timeout(20000)});
+          const ns=await nsResponse.json();
+          console.log('Plug namespaces:',JSON.stringify((ns.result||[]).filter(x=>x.class==='PlugHub'||x.class_name==='PlugHub'||x.name?.includes('PlugHub'))));
+          const settingsResponse=await fetch(base+'/settings',{headers,signal:AbortSignal.timeout(20000)});
+          const settings=await settingsResponse.json();
+          console.log('Current DO binding:',JSON.stringify((settings.result?.bindings||[]).filter(b=>b.type==='durable_object_namespace')));
+          const codeResponse=await fetch(base,{headers,signal:AbortSignal.timeout(20000)});
+          const deployed=await codeResponse.text();
+          console.log('Uploaded receiver source:',JSON.stringify({hasSnapshot:deployed.includes('async snapshot()'),hasLastSeen:deployed.includes('lastSeenAt'),hasEvents:deployed.includes("path==='/api/events'"),hasTTL:deployed.includes('offlineAfterMs:10000')}));
+          throw Error('Read-only receiver inspection complete');
           const r=await fetch(base+'/deployments',{headers});
           const d=await r.json();
           const deployments=d.result?.deployments || [];
