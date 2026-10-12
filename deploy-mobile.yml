@@ -1,53 +1,116 @@
 name: Deploy Smart Plug
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: smart-plug-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      WEB_PASSWORD: ${{ secrets.WEB_PASSWORD }}
-      DEVICE_KEY: ${{ secrets.DEVICE_KEY }}
-      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Check required secrets
         run: |
-          node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","WEB_PASSWORD","DEVICE_KEY","SESSION_SECRET"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
-      - name: Extract website
-        run: unzip -q SmartPlug-Cloudflare-Web.zip -d deploy
+          node -e 'for (const k of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID"]) { if (!process.env[k]) { console.error("Missing secret: " + k); process.exit(1); } }'
+
+      - name: Prepare current website sources
+        run: |
+          mkdir -p deploy/smart-plug-cloud/src deploy/smart-plug-cloud/public deploy/smart-plug-cloud/tests
+          cp src/*.js deploy/smart-plug-cloud/src/
+          cp app.js index.html extra.css deploy/smart-plug-cloud/public/
+          cp -a public/. deploy/smart-plug-cloud/public/
+          cp package.json wrangler.jsonc deploy/smart-plug-cloud/
+          cp hub.test.mjs access.test.mjs deploy/smart-plug-cloud/tests/
+
       - name: Install and test
         working-directory: deploy/smart-plug-cloud
         run: |
           npm install
           npm test
-      - name: Prepare Worker secrets
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const values = {};
-          for (const key of ['WEB_PASSWORD', 'DEVICE_KEY', 'SESSION_SECRET']) {
-            values[key] = process.env[key];
-          }
-          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'worker-secrets.json'), JSON.stringify(values), { mode: 0o600 });
-          NODE
+
       - name: Deploy website
         working-directory: deploy/smart-plug-cloud
-        run: npx wrangler deploy
-      - name: Set Worker secrets
-        working-directory: deploy/smart-plug-cloud
-        run: npx wrangler secret bulk "$RUNNER_TEMP/worker-secrets.json"
-      - name: Remove temporary secrets
-        if: always()
-        run: rm -f "$RUNNER_TEMP/worker-secrets.json"
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dashboard = fs.readFileSync('src/dashboard.js','utf8').replace('export const dashboard =','const dashboard =');
+          const worker = fs.readFileSync('src/worker.js','utf8').replace("import {dashboard} from './dashboard.js';","");
+          const code = dashboard + '\n' + worker;
+          const form = new FormData();
+          form.set('metadata',new Blob([JSON.stringify({
+            main_module:'worker.js',
+            compatibility_date:'2026-10-09',
+            keep_bindings:['secret_text','plain_text'],
+            bindings:[{name:'PLUG',type:'durable_object_namespace',class_name:'PlugHub'}]
+          })],{type:'application/json'}));
+          form.set('worker.js',new Blob([code],{type:'application/javascript+module'}),'worker.js');
+          const endpoint='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
+          const response=await fetch(endpoint,{
+            method:'PUT',
+            headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},
+            body:form,
+            signal:AbortSignal.timeout(90000)
+          });
+          const raw=await response.text();
+          let result;try{result=JSON.parse(raw);}catch{throw Error('Worker upload HTTP '+response.status);}
+          if(!response.ok||!result.success)throw Error('Worker upload failed: '+JSON.stringify(result.errors||[]));
+          console.log('Realtime Worker uploaded; existing secrets and Durable Object bindings preserved.');
+          NODE
+
+      - name: Verify deployed dashboard
+        run: |
+          node --input-type=module <<'NODE'
+          const origin = 'https://smart-plug-web.lumira-labassistant.workers.dev';
+          let verified = false;
+          let stableChecks = 0;
+          for (let attempt = 0; attempt < 14; attempt++) {
+            try {
+              const response = await fetch(origin + '/api/access', {signal: AbortSignal.timeout(10000)});
+              const access = await response.json();
+              const page = await fetch(origin + '/', {signal: AbortSignal.timeout(10000)});
+              const html = await page.text();
+              if (response.ok && access.publicControl === true && access.version === 'realtime-presence-v2' && html.includes('ได้รับสัญญาณจากบอร์ดล่าสุด') && html.includes('/api/events') && html.includes('serverOrigin=location.origin')) {
+                const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
+                if (!state.ok) throw Error('State API: ' + state.status);
+                const snapshot=await state.json();
+                if(snapshot.offlineAfterMs!==10000||!Object.hasOwn(snapshot,'lastSeenAt'))throw Error('Board receiver is still on an older version');
+                console.log('Verified login-free dashboard and board state API');
+                stableChecks++;
+                console.log('Stable deployment checks:', stableChecks, '/ 8');
+                if (stableChecks >= 8) { verified = true; break; }
+                await new Promise(resolve => setTimeout(resolve, 20000));
+                continue;
+              }
+              stableChecks = 0;
+              console.log('Waiting for latest deployment; access status:', response.status, 'version:', access.version || 'older version');
+            } catch (error) { console.log('Verification retry:', error.message); }
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+          if (!verified) {
+            const url = 'https://api.cloudflare.com/client/v4/accounts/' + process.env.CLOUDFLARE_ACCOUNT_ID + '/workers/scripts/smart-plug-web/deployments';
+            const response = await fetch(url, {headers: {Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_TOKEN}});
+            const data = await response.json();
+            console.log('Active Worker deployments:', JSON.stringify(data.result));
+            throw Error('Public website is not serving the expected deployment');
+          }
+          NODE
+
