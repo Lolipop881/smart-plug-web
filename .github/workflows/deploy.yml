@@ -52,10 +52,6 @@ jobs:
           node --input-type=module <<'NODE'
           const base='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
           const headers={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
-          const settingsResponse=await fetch(base+'/settings',{headers,signal:AbortSignal.timeout(20000)});
-          const settings=await settingsResponse.json();
-          console.log('Durable Object wiring:',JSON.stringify((settings.result?.bindings||[]).filter(b=>b.type==='durable_object_namespace')));
-          throw Error('Diagnostic complete: inspecting Durable Object wiring before next deployment');
           const r=await fetch(base+'/deployments',{headers});
           const d=await r.json();
           const deployments=d.result?.deployments || [];
@@ -79,7 +75,8 @@ jobs:
           form.set('metadata',new Blob([JSON.stringify({
             main_module:'worker.js',
             compatibility_date:'2026-10-09',
-            keep_bindings:['secret_text','plain_text','durable_object_namespace']
+            keep_bindings:['secret_text','plain_text'],
+            bindings:[{name:'PLUG',type:'durable_object_namespace',class_name:'PlugHub'}]
           })],{type:'application/json'}));
           form.set('worker.js',new Blob([code],{type:'application/javascript+module'}),'worker.js');
           const endpoint='https://api.cloudflare.com/client/v4/accounts/'+process.env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts/smart-plug-web';
@@ -110,6 +107,8 @@ jobs:
               if (response.ok && access.publicControl === true && access.version === 'realtime-presence-v2' && html.includes('ได้รับสัญญาณจากบอร์ดล่าสุด') && html.includes('/api/events') && html.includes('serverOrigin=location.origin')) {
                 const state = await fetch(origin + '/api/state', {signal: AbortSignal.timeout(10000)});
                 if (!state.ok) throw Error('State API: ' + state.status);
+                const snapshot=await state.json();
+                if(snapshot.offlineAfterMs!==10000||!Object.hasOwn(snapshot,'lastSeenAt'))throw Error('Board receiver is still on an older version');
                 console.log('Verified login-free dashboard and board state API');
                 stableChecks++;
                 console.log('Stable deployment checks:', stableChecks, '/ 8');
